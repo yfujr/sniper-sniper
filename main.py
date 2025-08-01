@@ -1,78 +1,89 @@
 import requests
+import random
 import string
-import itertools
+import threading
 import time
-import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
 
-# === CONFIGURATION ===
-MAX_USERNAMES = 50  # Limit to avoid hitting Roblox API too fast
-DELAY_BETWEEN_REQUESTS = 1.5  # seconds
-CHECK_4_LETTER = True
-CHECK_5_LETTER = True
-MAX_WORKERS = 10  # Number of concurrent requests
+# Configuration
+THREADS = 28                  # Optimal thread count
+TIMEOUT = 2                   # Request timeout
+OUTPUT_FILE = "premium_names.txt"
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Thread-safe setup
+queue = Queue(maxsize=1000)
+found = []
+lock = threading.Lock()
+running = True
 
-def generate_usernames():
-    usernames = set()
+def generate_name():
+    """50% chance for 4-char (alphanumeric), 50% for 5-char (letters only)"""
+    if random.random() > 0.5:
+        # 4-character with numbers
+        chars = string.ascii_lowercase + string.digits
+        return ''.join(random.choice(chars) for _ in range(4))
+    else:
+        # 5-letter only
+        return ''.join(random.choice(string.ascii_lowercase) for _ in range(5))
 
-    if CHECK_4_LETTER:
-        charset = string.ascii_lowercase + string.digits
-        for combo in itertools.product(charset, repeat=4):
-            usernames.add("".join(combo))
-            if len(usernames) >= MAX_USERNAMES:
-                break
-
-    if CHECK_5_LETTER and len(usernames) < MAX_USERNAMES:
-        charset = string.ascii_lowercase
-        for combo in itertools.product(charset, repeat=5):
-            usernames.add("".join(combo))
-            if len(usernames) >= MAX_USERNAMES:
-                break
-
-    return list(usernames)
-
-def check_username(username):
-    url = f"https://api.roblox.com/users/get-by-username?username={username}"
+def check_name(name):
+    url = f"https://auth.roblox.com/v1/usernames/validate?request.username={name}&request.birthday=2000-01-01"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("Id") is None
-    except requests.RequestException as e:
-        logging.error(f"Error checking username {username}: {e}")
-        return False
+        response = requests.get(url, timeout=TIMEOUT)
+        if response.status_code == 429:
+            time.sleep(1.5)  # Rate limit handling
+            return False
+        if response.json().get("code") == 0:
+            with lock:
+                found.append(name)
+                with open(OUTPUT_FILE, 'a') as f:
+                    f.write(f"{name}\n")
+            print(f"\033[92m[AVAILABLE] {name}\033[0m")
+            return True
+        print(f"\033[91m[taken] {name}\033[0m", end='\r', flush=True)
+    except:
+        pass
+    return False
+
+def worker():
+    while running:
+        try:
+            name = queue.get(timeout=1)
+            check_name(name)
+            queue.task_done()
+            time.sleep(0.07)  # 70ms delay between checks
+        except:
+            continue
 
 def main():
-    usernames = generate_usernames()
-    logging.info(f"Checking {len(usernames)} usernames...")
-
-    available = []
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_username = {executor.submit(check_username, username): username for username in usernames}
-
-        for future in as_completed(future_to_username):
-            username = future_to_username[future]
-            try:
-                is_available = future.result()
-                status = "Available" if is_available else "Taken"
-                logging.info(f"[{status}] {username}")
-
-                if is_available:
-                    available.append(username)
-
-            except Exception as exc:
-                logging.error(f"Generated an exception: {exc}")
-
-            time.sleep(DELAY_BETWEEN_REQUESTS)
-
-    with open("Available.txt", "w") as f:
-        for name in available:
-            f.write(name + "\n")
-
-    logging.info(f"\nDone. {len(available)} usernames available.")
+    global running
+    print("\033[1m🔥 Scanning 4-char (alphanumeric) and 5-letter usernames\033[0m")
+    
+    # Start threads
+    threads = []
+    for _ in range(THREADS):
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        threads.append(t)
+    
+    try:
+        # Main producer loop
+        while True:
+            if queue.qsize() < THREADS * 10:
+                queue.put(generate_name())
+            else:
+                time.sleep(0.01)
+            
+            # Stats every 2 minutes
+            if time.time() % 120 < 0.1 and found:
+                print(f"\n\033[1m💎 Found: {len(found)} | Last: {found[-1]}\033[0m\n")
+                
+    except KeyboardInterrupt:
+        running = False
+        print("\n🛑 Stopping gracefully...")
+        for t in threads:
+            t.join(timeout=1)
+        print(f"\033[1m✅ Saved {len(found)} names to {OUTPUT_FILE}\033[0m")
 
 if __name__ == "__main__":
     main()
