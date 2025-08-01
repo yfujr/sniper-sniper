@@ -5,7 +5,7 @@ import threading
 import time
 
 # Config
-THREADS = 10  # Number of threads (start with 10)
+THREADS = 2  # Number of threads (start with 10)
 FILE = 'valid.txt'
 BIRTHDAY = '1999-04-20'
 LOG_TAKEN = False  # Set to True to show taken names
