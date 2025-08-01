@@ -10,9 +10,9 @@ FILE = 'valid.txt'
 BIRTHDAY = '1999-04-20'
 LOG_TAKEN = False  # Show taken usernames
 
-# Rate limiting (per IP)
+# Rate limiting
 MAX_REQUESTS_PER_MIN = 500
-SAFE_REQUESTS_PER_MIN = int(MAX_REQUESTS_PER_MIN * 0.9)  # safety buffer
+SAFE_REQUESTS_PER_MIN = int(MAX_REQUESTS_PER_MIN * 0.9)
 REQUESTS_PER_THREAD_PER_MIN = SAFE_REQUESTS_PER_MIN // THREADS
 SLEEP_AFTER_429 = 60  # seconds
 
@@ -51,7 +51,7 @@ def make_username():
 def check_username_with_status(username):
     url = f"https://auth.roblox.com/v1/usernames/validate?request.username={username}&request.birthday={BIRTHDAY}"
     try:
-        r = requests.get(url, timeout=5)
+        r = requests.get(url)  # Removed timeout=5
         if r.status_code == 429:
             return None, 429
         r.raise_for_status()
@@ -64,7 +64,6 @@ def worker():
     window_start = time.time()
 
     while True:
-        # Rate limit logic per thread
         elapsed = time.time() - window_start
         if count >= REQUESTS_PER_THREAD_PER_MIN:
             if elapsed < 60:
@@ -82,7 +81,7 @@ def worker():
             continue
 
         if result is None:
-            time.sleep(1)
+            # No timeout fallback now; just skip silently
             continue
 
         if result:
@@ -90,12 +89,12 @@ def worker():
         else:
             log_taken(username)
 
-# Launch threads
+# Start threads
 print(f"[*] Starting {THREADS} threads with rate control... Press Ctrl+C to stop.\n")
-for _ in range(THREADS):
-    threading.Thread(target=worker, daemon=True).start()
+for i in range(THREADS):
+    threading.Thread(target=worker, daemon=True, name=f"T{i+1}").start()
 
-# Keep alive
+# Keep main thread alive
 try:
     while True:
         time.sleep(10)
