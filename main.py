@@ -1,89 +1,81 @@
+#####################################################################
+#                                                                   #
+#  Dew3's Roblox Username Generator & Checker                       # 
+#  v0.3                                                             #
+#  Modified with random username generation (4-5 chars)              #
+#  Utilizes robloxapi by iranathan                                  #
+#                                                                   #
+#####################################################################
+
+import robloxapi, asyncio
 import requests
+import pathlib
+import colorama
+import os, sys
+import time
 import random
 import string
-import threading
-import time
-from queue import Queue
+from pathlib import Path
+from colorama import *
 
-# Configuration
-THREADS = 6
-TIMEOUT = 10
-REQUEST_DELAY = 0.3
-OUTPUT_FILE = "premium_names.txt"
+client = robloxapi.Client()
+current_path = os.path.dirname(os.path.realpath(__file__))
+open(current_path + "/Available.txt", "a")  # Creates 'Available.txt'
+numberOfUsernames = 0
+savedNames = 0
 
-# Shared resources
-queue = Queue()
-found_names = []
-running = True
-lock = threading.Lock()
-
-def generate_name():
-    """Generates a name: 4-char alphanum or 5-letter"""
-    if random.choice([True, False]):
-        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+def generate_username():
+    # Decide between 4 or 5 letters
+    length = random.choice([4, 5])
+    
+    if length == 4:
+        # 4 characters - can be any characters
+        characters = string.ascii_letters + string.digits + "_"
+        username = ''.join(random.choice(characters) for _ in range(4))
     else:
-        return ''.join(random.choices(string.ascii_lowercase, k=5))
+        # 5 characters - letters only
+        username = ''.join(random.choice(string.ascii_letters) for _ in range(5))
+    
+    return username
 
-def check_name(name):
-    url = f"https://api.roblox.com/users/get-by-username?username={name}"
-
-    try:
-        response = requests.get(url, timeout=TIMEOUT)
-
-        if response.status_code == 429:
-            print(f"\033[93m[Rate Limited] Sleeping...\033[0m")
-            time.sleep(5)
-            return False
-
-        data = response.json()
-
-        if 'Id' not in data:  # Username doesn't exist
-            with lock:
-                found_names.append(name)
-                with open(OUTPUT_FILE, 'a') as f:
-                    f.write(f"{name}\n")
-            print(f"\033[92m[AVAILABLE] {name}\033[0m")
-            return True
-        else:
-            print(f"\033[91m[Taken] {name}\033[0m", end='\r', flush=True)
-
-    except Exception as e:
-        print(f"\033[93m[Error] {name}: {e}\033[0m")
-        time.sleep(1)
-
-    return False
-
-def producer():
-    while running:
-        if queue.qsize() < 100:
-            queue.put(generate_name())
-        else:
-            time.sleep(0.05)
-
-def worker():
-    while running:
-        name = queue.get()
-        check_name(name)
-        queue.task_done()
-        time.sleep(REQUEST_DELAY)
-
-def main():
-    global running
-    print("\033[1m🔥 Premium Name Finder | Roblox Username Checker\033[0m")
-
-    threading.Thread(target=producer, daemon=True).start()
-
-    for _ in range(THREADS):
-        threading.Thread(target=worker, daemon=True).start()
-
-    try:
+async def check():
+    print(Fore.LIGHTBLACK_EX + "[" + Fore.CYAN + "+" + Fore.LIGHTBLACK_EX + "]" + "Dew3's Roblox Username Generator & Checker")
+    print(Fore.WHITE + "[" + Fore.CYAN + "*" + Fore.WHITE + "]" + "Generating and checking random usernames...\n")
+    
+    global savedNames
+    with open('Available.txt', 'w') as available:
         while True:
-            time.sleep(1)
-            if found_names:
-                print(f"\n\033[1m💎 Found: {len(found_names)} | Last: {found_names[-1]}\033[0m")
+            username = generate_username()
+            if len(username) >= 3 and len(username) <= 20:  # Ensure username meets Roblox requirements
+                global numberOfUsernames
+                numberOfUsernames += 1
+                
+                user = await client.get_user_by_username(username)
+                if user is None:
+                    available.write(username + "\n")
+                    savedNames += 1
+                    print(Fore.WHITE + "[" + Style.BRIGHT + Fore.GREEN + Back.BLACK + "Available" + Fore.WHITE + "]" + Fore.WHITE + username)
+                else:
+                    print(Fore.WHITE + "[" + Style.BRIGHT + Fore.RED + Back.BLACK + "Taken" + Fore.WHITE + "]" + Fore.WHITE + username)
+                
+                # Display stats every 50 checks
+                if numberOfUsernames % 50 == 0:
+                    print(Fore.CYAN + f"\nChecked {numberOfUsernames} usernames | Found {savedNames} available")
+                
+                # Small delay to prevent rate limiting
+                await asyncio.sleep(0.5)
+
+async def main():
+    try:
+        tic = time.perf_counter()
+        await check()
     except KeyboardInterrupt:
-        running = False
-        print(f"\n\033[1m✅ Saved {len(found_names)} names to {OUTPUT_FILE}\033[0m")
+        toc = time.perf_counter()
+        print(Fore.CYAN + "\n\nChecker finished " + str(numberOfUsernames) + f" usernames in {toc - tic:0.4f} seconds")
+        print("Saved " + str(savedNames) + " usernames to Available.txt!")
+        print(Fore.RED + "Closing in 5 seconds")
+        time.sleep(5)
+        sys.exit()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
