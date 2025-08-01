@@ -1,75 +1,78 @@
-#####################################################################
-#                                                                   #
-#  Roblox Username Sniper                                    #
-#  v1.0                                                             #
-#  Utilizes robloxapi by iranathan                                  #
-#                                                                   #
-#####################################################################
-
-import robloxapi, asyncio
 import requests
-import pathlib
-import colorama
-import os, sys
+import string
+import itertools
 import time
-from pathlib import Path
-from colorama import *
-from itertools import product
-import random
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-client = robloxapi.Client()
-current_path = os.path.dirname(os.path.realpath(__file__))
-open(current_path +"/"+str("Available")+str("")+".txt","a") #Creates 'Available.txt'
-open(current_path +"/"+str("Usernames")+str("")+".txt","a") #Creates 'Usernames.txt'
-available = open('Available.txt', 'w')
-mypath = Path('Usernames.txt')
-numberOfUsernames = 0
+# === CONFIGURATION ===
+MAX_USERNAMES = 50  # Limit to avoid hitting Roblox API too fast
+DELAY_BETWEEN_REQUESTS = 1.5  # seconds
+CHECK_4_LETTER = True
+CHECK_5_LETTER = True
+MAX_WORKERS = 10  # Number of concurrent requests
 
-# Generate 4-letter combinations with any characters
-def generate_4_letter_combinations():
-    return [''.join(c) for c in product('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', repeat=4)]
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Generate 5-letter combinations with only letters
-def generate_5_letter_combinations():
-    return [''.join(c) for c in product('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', repeat=5)]
+def generate_usernames():
+    usernames = set()
 
-async def check():
-    print(Fore.LIGHTBLACK_EX+"["+Fore.CYAN+"+"+Fore.LIGHTBLACK_EX+"]"+"Roblox Username Sniper")
+    if CHECK_4_LETTER:
+        charset = string.ascii_lowercase + string.digits
+        for combo in itertools.product(charset, repeat=4):
+            usernames.add("".join(combo))
+            if len(usernames) >= MAX_USERNAMES:
+                break
 
-    usernames = generate_4_letter_combinations() + generate_5_letter_combinations()
+    if CHECK_5_LETTER and len(usernames) < MAX_USERNAMES:
+        charset = string.ascii_lowercase
+        for combo in itertools.product(charset, repeat=5):
+            usernames.add("".join(combo))
+            if len(usernames) >= MAX_USERNAMES:
+                break
 
-    for username in usernames:
-        attempt = 0
-        max_attempts = 5
-        while attempt < max_attempts:
+    return list(usernames)
+
+def check_username(username):
+    url = f"https://api.roblox.com/users/get-by-username?username={username}"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("Id") is None
+    except requests.RequestException as e:
+        logging.error(f"Error checking username {username}: {e}")
+        return False
+
+def main():
+    usernames = generate_usernames()
+    logging.info(f"Checking {len(usernames)} usernames...")
+
+    available = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_username = {executor.submit(check_username, username): username for username in usernames}
+
+        for future in as_completed(future_to_username):
+            username = future_to_username[future]
             try:
-                user = await client.get_user_by_username(username) #robloxapi either returns a user object or None if the user doesn't exist
-                if user == None:
-                    available.write(username + "\n") #The username isn't taken so we store it into 'Availables.txt'
-                    print(Fore.WHITE+"["+Style.BRIGHT + Fore.GREEN + Back.BLACK+"Not Taken"+Fore.WHITE+"]" +Fore.WHITE +username)
-                    global numberOfUsernames
-                    numberOfUsernames += 1 #Counter for the total number of usernames
+                is_available = future.result()
+                status = "Available" if is_available else "Taken"
+                logging.info(f"[{status}] {username}")
 
-                else:
-                    print(Fore.WHITE+"["+Style.BRIGHT + Fore.RED + Back.BLACK+"Taken"+Fore.WHITE+"]" +Fore.WHITE +username)
+                if is_available:
+                    available.append(username)
 
-                break  # Exit the loop if the request is successful
+            except Exception as exc:
+                logging.error(f"Generated an exception: {exc}")
 
-            except robloxapi.exceptions.RobloxAPIError as e:
-                if e.response.status_code == 429:  # Rate limited
-                    wait_time = 2 ** attempt + random.uniform(0, 1)  # Exponential backoff with jitter
-                    print(Fore.YELLOW + f"Rate limited. Retrying in {wait_time:.2f} seconds...")
-                    await asyncio.sleep(wait_time)
-                    attempt += 1
-                else:
-                    print(Fore.RED + f"Error: {e}")
-                    break
+            time.sleep(DELAY_BETWEEN_REQUESTS)
 
-tic = time.perf_counter() #Program timer start
-asyncio.run(check())
-toc = time.perf_counter() #Program timer stop
-available.close()
-print(Fore.CYAN+"\nChecker finished " + str(numberOfUsernames) + f" usernames in {toc - tic:0.4f} seconds")
-print(Fore.RED +"Closing in 5 seconds")
-time.sleep(5)
-sys.exit()
+    with open("Available.txt", "w") as f:
+        for name in available:
+            f.write(name + "\n")
+
+    logging.info(f"\nDone. {len(available)} usernames available.")
+
+if __name__ == "__main__":
+    main()
