@@ -6,9 +6,9 @@ import time
 from queue import Queue
 
 # Configuration
-THREADS = 18
-TIMEOUT = 3
-REQUEST_DELAY = 0.2   # Safer delay between requests
+THREADS = 6
+TIMEOUT = 10
+REQUEST_DELAY = 0.3
 OUTPUT_FILE = "premium_names.txt"
 
 # Shared resources
@@ -18,22 +18,17 @@ running = True
 lock = threading.Lock()
 
 def generate_name():
-    """Generates a name: either 4-char alphanum or 5-letter"""
+    """Generates a name: 4-char alphanum or 5-letter"""
     if random.choice([True, False]):
-        chars = string.ascii_lowercase + string.digits
-        return ''.join(random.choices(chars, k=4))
+        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
     else:
         return ''.join(random.choices(string.ascii_lowercase, k=5))
 
 def check_name(name):
-    url = "https://auth.roblox.com/v1/usernames/validate"
-    payload = {
-        "username": name,
-        "birthday": "2000-01-01"
-    }
+    url = f"https://api.roblox.com/users/get-by-username?username={name}"
 
     try:
-        response = requests.post(url, json=payload, timeout=TIMEOUT)
+        response = requests.get(url, timeout=TIMEOUT)
 
         if response.status_code == 429:
             print(f"\033[93m[Rate Limited] Sleeping...\033[0m")
@@ -42,7 +37,7 @@ def check_name(name):
 
         data = response.json()
 
-        if data.get("code") == 0:
+        if 'Id' not in data:  # Username doesn't exist
             with lock:
                 found_names.append(name)
                 with open(OUTPUT_FILE, 'a') as f:
@@ -50,7 +45,7 @@ def check_name(name):
             print(f"\033[92m[AVAILABLE] {name}\033[0m")
             return True
         else:
-            print(f"\033[91m[taken] {name}\033[0m", end='\r', flush=True)
+            print(f"\033[91m[Taken] {name}\033[0m", end='\r', flush=True)
 
     except Exception as e:
         print(f"\033[93m[Error] {name}: {e}\033[0m")
