@@ -8,13 +8,8 @@ import time
 THREADS = 20
 FILE = 'valid.txt'
 BIRTHDAY = '1999-04-20'
-LOG_TAKEN = True  # <- Now enabled
-
-# Rate limiting
-MAX_REQUESTS_PER_MIN = 500
-SAFE_REQUESTS_PER_MIN = int(MAX_REQUESTS_PER_MIN * 0.9)
-REQUESTS_PER_THREAD_PER_MIN = SAFE_REQUESTS_PER_MIN // THREADS
-SLEEP_AFTER_429 = 60  # seconds
+LOG_TAKEN = True  # Set to True to show taken usernames
+SHOW_THREAD_TAG = True  # Show [T#] for thread info
 
 # Colors
 class bcolors:
@@ -22,22 +17,24 @@ class bcolors:
     FAIL = '\033[91m'
     END = '\033[0m'
 
-# Shared counters
+# Shared counters & data
 lock = threading.Lock()
 found = 0
+successful_usernames = []
 
-def log_success(username):
+def log_success(username, thread_id):
     global found
     with lock:
         found += 1
-        print(f"{bcolors.OK}[{found}] [+] {username} is available{bcolors.END}")
+        successful_usernames.append(username)
+        print(f"{bcolors.OK}[{found}] [+] {username} is available {f'[T{thread_id}]' if SHOW_THREAD_TAG else ''}{bcolors.END}")
         with open(FILE, 'a') as f:
             f.write(username + '\n')
 
-def log_taken(username, thread_name):
+def log_taken(username, thread_id):
     if LOG_TAKEN:
         with lock:
-            print(f"{bcolors.FAIL}[{thread_name}] [TAKEN] {username}{bcolors.END}")
+            print(f"{bcolors.FAIL}[TAKEN] {username} {f'[T{thread_id}]' if SHOW_THREAD_TAG else ''}{bcolors.END}")
 
 def make_username():
     length = random.choice([4, 5])
@@ -51,7 +48,7 @@ def make_username():
 def check_username_with_status(username):
     url = f"https://auth.roblox.com/v1/usernames/validate?request.username={username}&request.birthday={BIRTHDAY}"
     try:
-        r = requests.get(url)  # No timeout for hotspot method
+        r = requests.get(url)
         if r.status_code == 429:
             return None, 429
         r.raise_for_status()
@@ -59,44 +56,33 @@ def check_username_with_status(username):
     except requests.RequestException:
         return None, None
 
-def worker():
-    count = 0
-    window_start = time.time()
-    thread_name = threading.current_thread().name
-
+def worker(thread_id):
     while True:
-        elapsed = time.time() - window_start
-        if count >= REQUESTS_PER_THREAD_PER_MIN:
-            if elapsed < 60:
-                time.sleep(60 - elapsed)
-            window_start = time.time()
-            count = 0
-
         username = make_username()
         result, status = check_username_with_status(username)
-        count += 1
 
         if status == 429:
-            print(f"{bcolors.FAIL}[{thread_name}] [!] Rate limited. Sleeping {SLEEP_AFTER_429}s...{bcolors.END}")
-            time.sleep(SLEEP_AFTER_429)
+            print(f"{bcolors.FAIL}[T{thread_id}] Rate limited. Skipping...{bcolors.END}")
             continue
-
         if result is None:
             continue
 
         if result:
-            log_success(username)
+            log_success(username, thread_id)
         else:
-            log_taken(username, thread_name)
+            log_taken(username, thread_id)
 
 # Start threads
-print(f"[*] Starting {THREADS} threads with live logging... Press Ctrl+C to stop.\n")
+print(f"[*] Starting {THREADS} threads... Press Ctrl+C to stop.\n")
 for i in range(THREADS):
-    threading.Thread(target=worker, daemon=True, name=f"T{i+1}").start()
+    threading.Thread(target=worker, args=(i+1,), daemon=True).start()
 
-# Keep main thread alive
+# Main thread: Wait and show summary on exit
 try:
     while True:
         time.sleep(10)
 except KeyboardInterrupt:
     print("\n[!] Stopped by user.")
+    print(f"\n✅ Found {found} valid usernames:\n")
+    for u in successful_usernames:
+        print(f" - {u}")
