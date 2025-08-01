@@ -5,10 +5,10 @@ import threading
 import time
 
 # Configuration
-THREADS = 8  # Safe range: 6–10 for ~480 req/min
+THREADS = 8
 FILE = 'valid.txt'
 BIRTHDAY = '1999-04-20'
-LOG_TAKEN = False  # Show taken usernames
+LOG_TAKEN = True  # <- Now enabled
 
 # Rate limiting
 MAX_REQUESTS_PER_MIN = 500
@@ -34,10 +34,10 @@ def log_success(username):
         with open(FILE, 'a') as f:
             f.write(username + '\n')
 
-def log_taken(username):
+def log_taken(username, thread_name):
     if LOG_TAKEN:
         with lock:
-            print(f"{bcolors.FAIL}[-] {username} is taken{bcolors.END}")
+            print(f"{bcolors.FAIL}[{thread_name}] [TAKEN] {username}{bcolors.END}")
 
 def make_username():
     length = random.choice([4, 5])
@@ -51,7 +51,7 @@ def make_username():
 def check_username_with_status(username):
     url = f"https://auth.roblox.com/v1/usernames/validate?request.username={username}&request.birthday={BIRTHDAY}"
     try:
-        r = requests.get(url)  # Removed timeout=5
+        r = requests.get(url)  # No timeout for hotspot method
         if r.status_code == 429:
             return None, 429
         r.raise_for_status()
@@ -62,6 +62,7 @@ def check_username_with_status(username):
 def worker():
     count = 0
     window_start = time.time()
+    thread_name = threading.current_thread().name
 
     while True:
         elapsed = time.time() - window_start
@@ -76,21 +77,20 @@ def worker():
         count += 1
 
         if status == 429:
-            print(f"{bcolors.FAIL}[!] Rate limited. Pausing thread for {SLEEP_AFTER_429}s...{bcolors.END}")
+            print(f"{bcolors.FAIL}[{thread_name}] [!] Rate limited. Sleeping {SLEEP_AFTER_429}s...{bcolors.END}")
             time.sleep(SLEEP_AFTER_429)
             continue
 
         if result is None:
-            # No timeout fallback now; just skip silently
             continue
 
         if result:
             log_success(username)
         else:
-            log_taken(username)
+            log_taken(username, thread_name)
 
 # Start threads
-print(f"[*] Starting {THREADS} threads with rate control... Press Ctrl+C to stop.\n")
+print(f"[*] Starting {THREADS} threads with live logging... Press Ctrl+C to stop.\n")
 for i in range(THREADS):
     threading.Thread(target=worker, daemon=True, name=f"T{i+1}").start()
 
