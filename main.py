@@ -3,10 +3,12 @@ import random
 import string
 import threading
 import time
+import os
 
 # Configuration
 THREADS = 200
-FILE = 'valid.txt'
+VALID_FILE = 'valid.txt'
+CHECKED_FILE = 'checked.txt'
 BIRTHDAY = '1999-04-20'
 LOG_TAKEN = True  # Show taken usernames
 
@@ -16,10 +18,17 @@ class bcolors:
     FAIL = '\033[91m'
     END = '\033[0m'
 
-# Shared counters & data
+# Shared data
 lock = threading.Lock()
 found = 0
 successful_usernames = []
+checked_usernames = set()
+
+# Load previously checked usernames from file into the set
+if os.path.exists(CHECKED_FILE):
+    with open(CHECKED_FILE, 'r') as f:
+        for line in f:
+            checked_usernames.add(line.strip())
 
 def log_success(username, thread_id):
     global found
@@ -27,7 +36,7 @@ def log_success(username, thread_id):
         found += 1
         successful_usernames.append(username)
         print(f"{bcolors.OK}[{found}] [+] {username} is available [T{thread_id}]{bcolors.END}")
-        with open(FILE, 'a') as f:
+        with open(VALID_FILE, 'a') as f:
             f.write(username + '\n')
 
 def log_taken(username, thread_id):
@@ -35,9 +44,17 @@ def log_taken(username, thread_id):
         with lock:
             print(f"{bcolors.FAIL}[TAKEN] {username} [T{thread_id}]{bcolors.END}")
 
+def record_checked(username):
+    # Save checked username to file and set (thread-safe)
+    with lock:
+        if username not in checked_usernames:
+            checked_usernames.add(username)
+            with open(CHECKED_FILE, 'a') as f:
+                f.write(username + '\n')
+
 def make_username():
     length = 4
-    chars = string.ascii_lowercase + string.digits  # 4-letter usernames can have letters + digits
+    chars = string.ascii_lowercase + string.digits
     while True:
         uname = ''.join(random.choices(chars, k=length))
         if '__' in uname or uname.startswith('_') or uname.endswith('_'):
@@ -58,13 +75,23 @@ def check_username_with_status(username):
 def worker(thread_id):
     while True:
         username = make_username()
+
+        with lock:
+            if username in checked_usernames:
+                continue  # Skip duplicate
+
         result, status = check_username_with_status(username)
 
         if status == 429:
             print(f"{bcolors.FAIL}[T{thread_id}] Rate limited. Skipping...{bcolors.END}")
+            time.sleep(5)
             continue
+
         if result is None:
+            time.sleep(0.1)
             continue
+
+        record_checked(username)
 
         if result:
             log_success(username, thread_id)
@@ -72,7 +99,7 @@ def worker(thread_id):
             log_taken(username, thread_id)
 
 # Start threads
-print(f"[*] Starting {THREADS} threads searching only 4-letter usernames... Press Ctrl+C to stop.\n")
+print(f"[*] Starting {THREADS} threads searching only 4-letter usernames with duplicate avoidance... Press Ctrl+C to stop.\n")
 for i in range(THREADS):
     threading.Thread(target=worker, args=(i+1,), daemon=True).start()
 
