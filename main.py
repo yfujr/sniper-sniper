@@ -4,9 +4,10 @@ import string
 import threading
 import time
 import os
+import sys
 
 # Configuration
-THREADS = 350  # Adjust as needed
+THREADS = 8  # Adjust as needed
 FILE_AVAILABLE = 'valid.txt'
 FILE_CHECKED = 'checked.txt'
 BIRTHDAY = '1999-04-20'
@@ -22,6 +23,7 @@ class bcolors:
 lock = threading.Lock()
 found = 0
 checked_usernames = set()
+stop_flag = False
 
 # Load previously checked usernames to avoid repeats across runs
 if os.path.exists(FILE_CHECKED):
@@ -49,37 +51,19 @@ def log_taken(username):
 
 def make_username():
     while True:
-        length = random.choice([4, 5])
+        # Only 4 chars now
+        # Positions: 0 1 2 3
+        pos0_chars = string.ascii_lowercase + string.digits
+        pos1_chars = string.ascii_lowercase + string.digits + '_'
+        pos2_chars = string.ascii_lowercase + string.digits + '_'
+        pos3_chars = string.ascii_lowercase + string.digits
 
-        if length == 4:
-            # Positions: 0 1 2 3
-            pos0_chars = string.ascii_lowercase + string.digits
-            pos1_chars = string.ascii_lowercase + string.digits + '_'
-            pos2_chars = string.ascii_lowercase + string.digits + '_'
-            pos3_chars = string.ascii_lowercase + string.digits
-
-            uname = (
-                random.choice(pos0_chars) +
-                random.choice(pos1_chars) +
-                random.choice(pos2_chars) +
-                random.choice(pos3_chars)
-            )
-
-        else:  # length == 5
-            # Positions: 0 1 2 3 4
-            pos0_chars = string.ascii_lowercase
-            pos1_chars = string.ascii_lowercase + '_'
-            pos2_chars = string.ascii_lowercase + '_'
-            pos3_chars = string.ascii_lowercase + '_'
-            pos4_chars = string.ascii_lowercase
-
-            uname = (
-                random.choice(pos0_chars) +
-                random.choice(pos1_chars) +
-                random.choice(pos2_chars) +
-                random.choice(pos3_chars) +
-                random.choice(pos4_chars)
-            )
+        uname = (
+            random.choice(pos0_chars) +
+            random.choice(pos1_chars) +
+            random.choice(pos2_chars) +
+            random.choice(pos3_chars)
+        )
 
         # Reject if double underscore anywhere
         if '__' in uname:
@@ -103,7 +87,7 @@ def check_username_with_status(username):
 
 def worker():
     global found
-    while True:
+    while not stop_flag:
         username = make_username()
         result, status = check_username_with_status(username)
 
@@ -126,12 +110,23 @@ def worker():
 
 # Start threads
 print(f"[*] Starting {THREADS} threads... Press Ctrl+C to stop.\n")
+threads = []
 for i in range(THREADS):
-    threading.Thread(target=worker, daemon=True).start()
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    threads.append(t)
 
-# Keep main thread alive
 try:
     while True:
         time.sleep(10)
 except KeyboardInterrupt:
-    print("\n[!] Stopped by user.")
+    stop_flag = True
+    print("\n[!] Stopping threads... please wait.")
+    # Wait a bit for threads to exit nicely
+    time.sleep(2)
+    if found > 0:
+        print(f"\n{bcolors.OK}Done! Found {found} available username(s).{bcolors.END}")
+    else:
+        print(f"\n{bcolors.FAIL}Done! No available usernames found.{bcolors.END}")
+    sys.exit()
+
