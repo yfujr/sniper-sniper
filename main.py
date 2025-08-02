@@ -6,7 +6,7 @@ import time
 import os
 
 # Configuration
-THREADS = 8  # Adjust as needed
+THREADS = 350  # Adjust as needed
 FILE_AVAILABLE = 'valid.txt'
 FILE_CHECKED = 'checked.txt'
 BIRTHDAY = '1999-04-20'
