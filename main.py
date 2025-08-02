@@ -5,7 +5,7 @@ import threading
 import time
 
 # Configuration
-THREADS = 50
+THREADS = 200
 FILE = 'valid.txt'
 BIRTHDAY = '1999-04-20'
 LOG_TAKEN = True  # Show taken usernames
