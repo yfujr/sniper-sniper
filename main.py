@@ -5,11 +5,10 @@ import threading
 import time
 
 # Configuration
-THREADS = 20
+THREADS = 8
 FILE = 'valid.txt'
 BIRTHDAY = '1999-04-20'
-LOG_TAKEN = True  # Set to True to show taken usernames
-SHOW_THREAD_TAG = True  # Show [T#] for thread info
+LOG_TAKEN = True  # Show taken usernames
 
 # Colors
 class bcolors:
@@ -27,18 +26,18 @@ def log_success(username, thread_id):
     with lock:
         found += 1
         successful_usernames.append(username)
-        print(f"{bcolors.OK}[{found}] [+] {username} is available {f'[T{thread_id}]' if SHOW_THREAD_TAG else ''}{bcolors.END}")
+        print(f"{bcolors.OK}[{found}] [+] {username} is available [T{thread_id}]{bcolors.END}")
         with open(FILE, 'a') as f:
             f.write(username + '\n')
 
 def log_taken(username, thread_id):
     if LOG_TAKEN:
         with lock:
-            print(f"{bcolors.FAIL}[TAKEN] {username} {f'[T{thread_id}]' if SHOW_THREAD_TAG else ''}{bcolors.END}")
+            print(f"{bcolors.FAIL}[TAKEN] {username} [T{thread_id}]{bcolors.END}")
 
 def make_username():
-    length = random.choice([4, 5])
-    chars = string.ascii_lowercase + string.digits if length == 4 else string.ascii_lowercase
+    length = 4
+    chars = string.ascii_lowercase + string.digits  # 4-letter usernames can have letters + digits
     while True:
         uname = ''.join(random.choices(chars, k=length))
         if '__' in uname or uname.startswith('_') or uname.endswith('_'):
@@ -73,7 +72,7 @@ def worker(thread_id):
             log_taken(username, thread_id)
 
 # Start threads
-print(f"[*] Starting {THREADS} threads... Press Ctrl+C to stop.\n")
+print(f"[*] Starting {THREADS} threads searching only 4-letter usernames... Press Ctrl+C to stop.\n")
 for i in range(THREADS):
     threading.Thread(target=worker, args=(i+1,), daemon=True).start()
 
@@ -83,6 +82,6 @@ try:
         time.sleep(10)
 except KeyboardInterrupt:
     print("\n[!] Stopped by user.")
-    print(f"\n✅ Found {found} valid usernames:\n")
+    print(f"\n✅ Found {found} valid 4-letter usernames:\n")
     for u in successful_usernames:
         print(f" - {u}")
